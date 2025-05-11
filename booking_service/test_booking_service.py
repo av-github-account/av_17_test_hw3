@@ -1,149 +1,163 @@
 import pytest
-from unittest.mock import Mock
-from booking_service import *
+from unittest.mock import patch
+from booking_service import (
+    calc_price,
+    check_availability,
+    apply_promo_code,
+    generate_booking_ref,
+    send_notification_email
+)
 
-# ------------------------
+# ==============================
 # ФИКСТУРЫ
-# ------------------------
+# ==============================
 
 @pytest.fixture
-def promo_repo():
-    repo = Mock()
-    repo.get = Mock()
-    repo.mark_used = Mock()
-    return repo
+def booking_details():
+    return {"event": "Jazz Concert"}
 
 @pytest.fixture
-def email_sender():
-    return Mock()
+def valid_email():
+    return "user@example.com"
 
-# ------------------------
+
+
+
+
+# ==============================
 # ТЕСТЫ ДЛЯ calc_price
-# ------------------------
+# ==============================
 
-# Позитивные тесты
-@pytest.mark.parametrize("base, discount, count, expected", [
-    (100.0, 10.0, 2, 180.0),        # обычная скидка
-    (50.0, 0.0, 4, 200.0),          # без скидки
+# Позитивный тест: расчет без скидки
+@pytest.mark.parametrize("base_price, discount, count, expected", 
+                         [
+                             (100, 0, 2, 200), 
+                             (50, 10, 3, 135)
 ])
-def test_calc_price_positive(base, discount, count, expected):
-    # Позитивный тест: проверка правильного расчета цены
-    assert calc_price(base, discount, count) == expected
+def test_calc_price_positive(base_price, discount, count, expected):
+    assert calc_price(base_price, discount, count) == expected
 
-# Негативные тесты
-@pytest.mark.parametrize("base, discount, count", [
-    (-10, 5, 2),              # отрицательная цена
-    (100, 110, 1),            # скидка больше 100%
-])
-def test_calc_price_negative(base, discount, count):
-    # Негативный тест: должно вызывать исключение при некорректных входных данных
-    with pytest.raises(ValueError):
-        calc_price(base, discount, count)
+# Негативный тест: отрицательная скидка
+def test_calc_price_negative_discount():
+    with pytest.raises(ValueError, match="Price and discount must be non-negative"):
+        calc_price(100, -5, 2)
 
-# ------------------------
+# Негативный тест: скидка больше 100%
+def test_calc_price_negative_too_big_discount():
+    with pytest.raises(ValueError, match="Discount cannot exceed 100%"):
+        calc_price(100, 150, 1)
+
+# Негативный тест: отрицательное количество билетов
+def test_calc_price_negative_count():
+    with pytest.raises(ValueError, match="Count must be non-negative"):
+        calc_price(50, 10, -1)
+
+
+
+
+
+# ==============================
 # ТЕСТЫ ДЛЯ check_availability
-# ------------------------
+# ==============================
 
-# Позитивные тесты
-def test_check_availability_enough_seats():
-    # Позитивный тест: мест достаточно
-    mock_db = Mock(return_value=10)
-    assert check_availability(1, 5, mock_db) is True
+# Позитивный тест: достаточно мест
+@patch("booking_service.get_available_seats", return_value=50)
+def test_check_availability_positive_enough(mock_get):
+    assert check_availability(1, 20) is True
 
-def test_check_availability_exact_match():
-    # Позитивный тест: мест ровно столько, сколько запрошено
-    mock_db = Mock(return_value=3)
-    assert check_availability(1, 3, mock_db) is True
+# Позитивный тест: мест точно столько, сколько нужно
+@patch("booking_service.get_available_seats", return_value=10)
+def test_check_availability_positive_exact(mock_get):
+    assert check_availability(2, 10) is True
 
-# Негативные тесты
-def test_check_availability_not_enough():
-    # Негативный тест: мест недостаточно
-    mock_db = Mock(return_value=2)
-    assert check_availability(1, 5, mock_db) is False
+# Негативный тест: мест меньше, чем требуется
+@patch("booking_service.get_available_seats", return_value=5)
+def test_check_availability_negative_insufficient(mock_get):
+    assert check_availability(3, 10) is False
 
-def test_check_availability_invalid_request():
-    # Негативный тест: отрицательное количество мест
-    mock_db = Mock(return_value=10)
-    with pytest.raises(ValueError):
-        check_availability(1, -1, mock_db)
+# Негативный тест: запрос нуля или меньше мест
+def test_check_availability_negative_invalid_request():
+    with pytest.raises(ValueError, match="Requested seats must be positive"):
+        check_availability(4, 0)
 
-# ------------------------
+
+
+
+
+# ==============================
 # ТЕСТЫ ДЛЯ apply_promo_code
-# ------------------------
+# ==============================
 
-# Позитивные тесты
-def test_apply_valid_promo_code(promo_repo):
-    # Позитивный тест: промокод действителен
-    promo_repo.get.return_value = {"is_expired": False, "usage_left": 5}
-    assert apply_promo_code(123, "PROMO10", promo_repo) is True
+# Позитивный тест: промокод валиден и не использован
+@patch("booking_service.get_promo_code_data", return_value={"valid": True, "used": False})
+def test_apply_promo_code_positive_valid(mock_get):
+    assert apply_promo_code(1, "SUMMER2025") is True
 
-def test_apply_valid_promo_code_usage_edge(promo_repo):
-    # Позитивный тест: usage_left > 0
-    promo_repo.get.return_value = {"is_expired": False, "usage_left": 1}
-    assert apply_promo_code(123, "PROMOEDGE", promo_repo) is True
+# Позитивный тест: другой валидный промокод
+@patch("booking_service.get_promo_code_data", return_value={"valid": True, "used": False})
+def test_apply_promo_code_positive_another_valid(mock_get):
+    assert apply_promo_code(2, "SALE50") is True
 
-# Негативные тесты
-def test_apply_invalid_promo_code(promo_repo):
-    # Негативный тест: промокод не найден
-    promo_repo.get.return_value = None
-    assert apply_promo_code(123, "INVALID", promo_repo) is False
+# Негативный тест: промокод использован ранее
+@patch("booking_service.get_promo_code_data", return_value={"valid": True, "used": True})
+def test_apply_promo_code_negative_used(mock_get):
+    assert apply_promo_code(3, "EXPIRED") is False
 
-def test_apply_expired_promo_code(promo_repo):
-    # Негативный тест: промокод истек
-    promo_repo.get.return_value = {"is_expired": True, "usage_left": 3}
-    assert apply_promo_code(123, "EXPIRED", promo_repo) is False
+# Негативный тест: промокод не передан
+def test_apply_promo_code_negative_empty():
+    with pytest.raises(ValueError, match="Promo code cannot be empty"):
+        apply_promo_code(4, "")
 
-# ------------------------
+
+
+
+
+# ==============================
 # ТЕСТЫ ДЛЯ generate_booking_ref
-# ------------------------
+# ==============================
 
-# Позитивные тесты
-def test_generate_booking_ref_format():
-    # Позитивный тест: проверка формата строки
-    ref = generate_booking_ref(42, 99)
-    assert ref.startswith("BOOK-42-99-") and len(ref.split("-")[-1]) == 6
+# Позитивный тест: формат кода
+def test_generate_booking_ref_positive_format():
+    result = generate_booking_ref(10, 20)
+    assert result.startswith("BOOK-10-20-") and len(result.split("-")[-1]) == 6
 
-def test_generate_booking_ref_unique():
-    # Позитивный тест: уникальность двух вызовов
+# Позитивный тест: уникальность кода
+def test_generate_booking_ref_positive_unique():
     ref1 = generate_booking_ref(1, 1)
     ref2 = generate_booking_ref(1, 1)
     assert ref1 != ref2
 
-# Негативные тесты
-def test_generate_booking_ref_zero_ids():
-    # Негативный тест: проверка допустимости нулевых значений
-    ref = generate_booking_ref(0, 0)
-    assert ref.startswith("BOOK-0-0-")
+# Негативный тест: user_id <= 0
+def test_generate_booking_ref_negative_user():
+    with pytest.raises(ValueError, match="IDs must be positive"):
+        generate_booking_ref(0, 10)
 
-def test_generate_booking_ref_non_digit_suffix():
-    # Негативный тест: проверка на наличие нецифровых символов в суффиксе
-    ref = generate_booking_ref(1, 1)
-    assert any(c.isalpha() for c in ref.split("-")[-1])
+# Негативный тест: event_id <= 0
+def test_generate_booking_ref_negative_event():
+    with pytest.raises(ValueError, match="IDs must be positive"):
+        generate_booking_ref(10, 0)
 
-# ------------------------
+# ==============================
 # ТЕСТЫ ДЛЯ send_notification_email
-# ------------------------
+# ==============================
 
-# Позитивные тесты
-def test_send_email_success(email_sender):
-    # Позитивный тест: email отправлен успешно
-    email_sender.send = Mock()
-    assert send_notification_email("test@example.com", {"id": 1}, email_sender) is True
+# Позитивный тест: успешная отправка письма
+@patch("booking_service.send_email", return_value=True)
+def test_send_notification_email_positive(mock_send, valid_email, booking_details):
+    assert send_notification_email(valid_email, booking_details) is True
 
-def test_send_email_with_content(email_sender):
-    # Позитивный тест: проверка передачи данных
-    booking = {"event": "Concert", "date": "2025-01-01"}
-    email_sender.send = Mock()
-    assert send_notification_email("user@mail.com", booking, email_sender)
+# Позитивный тест: другая бронь, email корректный
+@patch("booking_service.send_email", return_value=True)
+def test_send_notification_email_positive_other(mock_send):
+    assert send_notification_email("client@example.org", {"event": "Theatre"}) is True
 
-# Негативные тесты
-def test_send_email_failure(email_sender):
-    # Негативный тест: выбрасывается исключение
-    email_sender.send.side_effect = Exception("SMTP Error")
-    assert send_notification_email("fail@example.com", {}, email_sender) is False
+# Негативный тест: некорректный email
+def test_send_notification_email_negative_email():
+    with pytest.raises(ValueError, match="Invalid email"):
+        send_notification_email("bademail", {"event": "X"})
 
-def test_send_email_empty_address(email_sender):
-    # Негативный тест: некорректный email
-    email_sender.send = Mock()
-    result = send_notification_email("", {"id": 1}, email_sender)
-    assert result is True  # Функция не валидирует email — допустимое поведение
+# Негативный тест: сбой в отправке письма
+@patch("booking_service.send_email", return_value=False)
+def test_send_notification_email_negative_smtp(mock_send):
+    result = send_notification_email("user@example.com", {"event": "Concert"})
+    assert result is False

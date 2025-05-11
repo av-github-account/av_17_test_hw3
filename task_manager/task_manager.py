@@ -1,12 +1,23 @@
 from datetime import datetime
 from typing import Dict
 
+# ===== Вспомогательные зависимости (мокируются в тестах) =====
+def send_email(email: str, content: str) -> bool:
+    """
+    Отправка email-сообщения (эмулируется). В реальности — SMTP/почтовый сервис.
+    """
+    return True
 
-# Функция 1: Создание задачи
+def get_project_deadline(project_id: int) -> datetime:
+    """
+    Получение дедлайна проекта (эмулируется как внешний источник: БД/репозиторий).
+    """
+    return datetime(2025, 5, 15)
+
+# ===== Бизнес-логика Task Manager =====
 def create_task(project_id: int, title: str, deadline: datetime) -> int:
     """
-    Создает задачу в рамках проекта и возвращает ID созданной задачи.
-    Предполагается, что project_id валиден, заголовок не пустой и дедлайн в будущем.
+    Создает задачу в рамках проекта. Возвращает ID задачи.
     """
     if not title:
         raise ValueError("Title cannot be empty.")
@@ -14,16 +25,11 @@ def create_task(project_id: int, title: str, deadline: datetime) -> int:
         raise ValueError("Deadline cannot be in the past.")
     if project_id <= 0:
         raise ValueError("Invalid project ID.")
-    
-    # Предположим, что задача сохраняется в базу и возвращается ID
-    task_id = 42  # Мокаем возвращаемое значение
-    return task_id
+    return 42  # Эмуляция ID созданной задачи
 
-
-# Функция 2: Учет времени
 def track_time(task_id: int, hours: float) -> float:
     """
-    Добавляет отработанные часы к задаче. Возвращает новое общее количество часов.
+    Добавляет отработанные часы к задаче. Возвращает обновленное значение.
     """
     if task_id <= 0:
         raise ValueError("Invalid task ID.")
@@ -31,48 +37,32 @@ def track_time(task_id: int, hours: float) -> float:
         raise ValueError("Hours must be positive.")
     if hours > 1000:
         raise ValueError("Unrealistic number of hours.")
-    
-    # Предположим, что обновляется в БД
-    return hours  # Возвращаем как будто бы общее количество часов стало равно hours
+    return hours
 
-
-# Функция 3: Расчет счета
 def calculate_invoice(hours: float, rate: float, currency: str) -> float:
     """
-    Рассчитывает сумму счета на основе часов, ставки и валюты.
-    Поддерживаемые валюты: USD, EUR.
+    Рассчитывает счет по часам, ставке и валюте. Поддержка: USD, EUR.
     """
     if hours < 0 or rate < 0:
         raise ValueError("Hours and rate must be non-negative.")
     if currency not in ("USD", "EUR"):
         raise ValueError("Unsupported currency.")
-    
-    result = round(hours * rate, 2)
-    return result
+    return round(hours * rate, 2)
 
-
-# Функция 4: Проверка дедлайна проекта
 def check_project_deadline(project_id: int) -> bool:
     """
-    Проверяет, истёк ли дедлайн проекта. Возвращает False, если срок прошёл.
-    Мокается получение даты из базы.
+    Проверяет, не истек ли срок проекта. Использует внешний источник даты.
     """
     if project_id <= 0:
         raise ValueError("Invalid project ID.")
-    
-    deadline = datetime(2025, 5, 15)  # Здесь бы подтягивалось из БД
+    deadline = get_project_deadline(project_id)
     return datetime.now() <= deadline
 
-
-# Функция 5: Отправка уведомлений
 def send_task_notification(email: str, task_info: Dict) -> bool:
     """
-    Отправляет уведомление на email с информацией о задаче.
-    Мокается отправка письма.
+    Отправляет уведомление о задаче. Использует send_email().
     """
     if "@" not in email:
         raise ValueError("Invalid email.")
-    
-    # Предположим, что здесь вызывается внешний SMTP-сервис
-    sent = True  # Мокаем успешную отправку
-    return sent
+    content = f"Task '{task_info.get('title')}' has status: {task_info.get('status', 'unknown')}"
+    return send_email(email, content)
